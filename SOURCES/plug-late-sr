@@ -1,0 +1,148 @@
+#!/usr/bin/env python
+
+import argparse
+import configparser
+import distutils.util
+import sys
+import time
+import XenAPI
+
+
+PBD_PLUG_RETRY_DELAY = 30  # In seconds.
+
+
+# ------------------------------------------------------------------------------
+
+def strtobool(value):
+    try:
+        return bool(distutils.util.strtobool(value))
+    except ValueError:
+        return False
+
+
+# ------------------------------------------------------------------------------
+
+def get_xapi_session():
+    session = XenAPI.xapi_local()
+    try:
+        session.xenapi.login_with_password('root', '', '', 'plug-late-sr')
+    except Exception as e:
+        raise Exception('Failed to get local Xen API session: {}'.format(e))
+    return session
+
+
+def get_local_host_uuid():
+    with open('/etc/xensource-inventory', 'r') as f:
+        for line in f.readlines():
+            if line.startswith('INSTALLATION_UUID'):
+                return line.split("'")[1]
+
+
+def get_local_host_ref(session):
+    return session.xenapi.host.get_by_uuid(get_local_host_uuid())
+
+
+def get_master_ref(session):
+    pools = session.xenapi.pool.get_all()
+    return session.xenapi.pool.get_master(pools[0])
+
+
+# ------------------------------------------------------------------------------
+
+def plug_pbds(session, sr_uuid, master_ref, sr_ref, retry_delay):
+    pbd_refs = session.xenapi.SR.get_PBDs(sr_ref)
+
+    # Find master PBD and move it before the slaves.
+    master_pbd_index = None
+    for index, pbd_ref in enumerate(pbd_refs):
+        pbd = session.xenapi.PBD.get_record(pbd_ref)
+        if pbd['host'] == master_ref:
+            master_pbd_index = index
+            break
+
+    should_start_vms = True
+    if master_pbd_index is not None:
+        if master_pbd_index != 0:
+            pbd_refs.insert(0, pbd_refs.pop(master_pbd_index))
+        if session.xenapi.PBD.get_currently_attached(pbd_refs[0]):
+            should_start_vms = False
+    else:
+        print('Unable to find master PBD of {}'.format(sr_uuid))
+
+    # Plug all PBDs.
+    for pbd_ref in pbd_refs:
+        while True:
+            try:
+                session.xenapi.PBD.plug(pbd_ref)
+                break
+            except Exception:
+                time.sleep(retry_delay)
+    return should_start_vms
+
+
+def start_vms(session, sr_ref):
+    vm_refs = []
+
+    vdis = session.xenapi.VDI.get_all_records_where(
+        'field "SR" = "{}"'.format(sr_ref)
+    )
+    for vdi in vdis.values():
+        for vbd_ref in vdi['VBDs']:
+            vbd = session.xenapi.VBD.get_record(vbd_ref)
+            vm_refs.append(vbd['VM'])
+
+    for vm_ref in set(vm_refs):
+        vm = session.xenapi.VM.get_record(vm_ref)
+        other_config = vm.get('other_config')
+        if not other_config:
+            continue
+
+        auto_poweron = other_config.get('auto_poweron')
+        if not auto_poweron:
+            continue
+
+        try:
+            session.xenapi.VM.start(vm_ref, False, False)
+        except XenAPI.Failure as e:
+            if e.details[0] != 'VM_BAD_POWER_STATE':
+                print('Failed to start VM: {}'.format(e))
+
+
+# ------------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--config', required=True, metavar='PATH')
+    args = parser.parse_args()
+
+    session = get_xapi_session()
+    master_ref = get_master_ref(session)
+    if get_local_host_ref(session) != master_ref:
+        sys.exit(0)
+
+    config = configparser.ConfigParser()
+    config.read(args.config)
+
+    for sr_uuid, config in config._sections.iteritems():
+        try:
+            sr_ref = session.xenapi.SR.get_by_uuid(sr_uuid)
+        except Exception as e:
+            print('Failed to get SR: {}'.format(e))
+            continue
+
+        try:
+            retry_delay = max(int(config.get('pbd-plug-retry-delay')), 5)
+        except Exception:
+            retry_delay = PBD_PLUG_RETRY_DELAY
+
+        should_start_vms = plug_pbds(
+            session, sr_uuid, master_ref, sr_ref, retry_delay
+        )
+        if should_start_vms and strtobool(
+            config.get('auto-poweron-vms', '1')
+        ):
+            start_vms(session, sr_ref)
+
+
+if __name__ == '__main__':
+    main()
