@@ -1,14 +1,14 @@
 [Unit]
 Description=Retry plugging PBDs to specific SRs on boot
-Requires=xapi.service
-After=xapi-init-complete.target
+Requires=xapi.service xapi-init-complete.target
+After=xapi.service xapi-init-complete.target
 
 [Service]
 Type=oneshot
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/plug-late-sr -c /etc/plug-late-sr.ini
-StandardOutput=journal
-StandardError=journal
+StandardOutput=syslog
+StandardError=syslog
 SyslogIdentifier=plug-late-sr
 
 [Install]
