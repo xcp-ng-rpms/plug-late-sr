@@ -5,6 +5,7 @@ Release: 1%{?dist}
 License: GPLv3
 Source0: plug-late-sr
 Source1: plug-late-sr.service
+Source2: README.md
 BuildArch: noarch
 
 BuildRequires: systemd
@@ -16,6 +17,9 @@ Requires(postun): systemd
 
 %description
 Retry plugging PBDs to specific SRs on boot, then start VMs which couldn't autostart due to the unreachable SRs.
+
+%prep
+install -D -m 644 %{SOURCE2} README.md
 
 %install
 install -D -m 755 %{SOURCE0} %{buildroot}%{_bindir}/plug-late-sr
@@ -36,6 +40,8 @@ fi
 %files
 %{_bindir}/plug-late-sr
 %{_unitdir}/plug-late-sr.service
+
+%doc README.md
 
 %changelog
 * Fri May 26 2023 Ronan Abhamon <ronan.abhamon@vates.fr> - 1.0-1
