@@ -49,7 +49,18 @@ def get_master_ref(session):
 
 # ------------------------------------------------------------------------------
 
-def plug_pbds(session, sr_uuid, master_ref, sr_ref, retry_delay):
+def get_pbd_plug_retry_delay(config):
+    try:
+        return max(int(config.get('pbd-plug-retry-delay')), 5)
+    except Exception:
+        return PBD_PLUG_RETRY_DELAY
+
+
+def has_auto_poweron_vms(config):
+    return strtobool(config.get('auto-poweron-vms', '1'))
+
+
+def plug_pbds(session, master_ref, sr_ref, sr_uuid, retry_delay):
     pbd_refs = session.xenapi.SR.get_PBDs(sr_ref)
 
     # Find master PBD and move it before the slaves.
@@ -80,7 +91,7 @@ def plug_pbds(session, sr_uuid, master_ref, sr_ref, retry_delay):
     return should_start_vms
 
 
-def start_vms(session, sr_ref):
+def get_vm_refs(session, sr_ref):
     vm_refs = []
 
     vdis = session.xenapi.VDI.get_all_records_where(
@@ -91,7 +102,11 @@ def start_vms(session, sr_ref):
             vbd = session.xenapi.VBD.get_record(vbd_ref)
             vm_refs.append(vbd['VM'])
 
-    for vm_ref in set(vm_refs):
+    return vm_refs
+
+
+def start_vms(session, vm_refs):
+    for vm_ref in vm_refs:
         vm = session.xenapi.VM.get_record(vm_ref)
         other_config = vm.get('other_config')
         if not other_config:
@@ -123,25 +138,43 @@ def main():
     config = configparser.ConfigParser()
     config.read(args.config)
 
-    for sr_uuid, config in config._sections.iteritems():
-        try:
-            sr_ref = session.xenapi.SR.get_by_uuid(sr_uuid)
-        except Exception as e:
-            print('Failed to get SR: {}'.format(e))
-            continue
+    all_srs_config = None
+    for sr_uuid, sr_config in config._sections.iteritems():
+        if sr_uuid == '*':
+            all_srs_config = sr_config
+            break
 
-        try:
-            retry_delay = max(int(config.get('pbd-plug-retry-delay')), 5)
-        except Exception:
-            retry_delay = PBD_PLUG_RETRY_DELAY
+    vm_refs = []
 
-        should_start_vms = plug_pbds(
-            session, sr_uuid, master_ref, sr_ref, retry_delay
-        )
-        if should_start_vms and strtobool(
-            config.get('auto-poweron-vms', '1')
-        ):
-            start_vms(session, sr_ref)
+    if all_srs_config is not None:
+        # Handle wildcard.
+        retry_delay = get_pbd_plug_retry_delay(all_srs_config)
+        srs = session.xenapi.SR.get_all_records()
+        auto_poweron = has_auto_poweron_vms(all_srs_config)
+
+        for sr_ref, sr in srs.iteritems():
+            should_start_vms = plug_pbds(
+                session, master_ref, sr_ref, sr['uuid'], retry_delay
+            )
+            if auto_poweron and should_start_vms:
+                vm_refs.extend(get_vm_refs(session, sr_ref))
+    else:
+        # Handle specific SRs.
+        for sr_uuid, sr_config in config._sections.iteritems():
+            try:
+                sr_ref = session.xenapi.SR.get_by_uuid(sr_uuid)
+            except Exception as e:
+                print('Failed to get SR: {}'.format(e))
+                continue
+
+            retry_delay = get_pbd_plug_retry_delay(sr_config)
+            should_start_vms = plug_pbds(
+                session, master_ref, sr_ref, sr_uuid, retry_delay
+            )
+            if should_start_vms and has_auto_poweron_vms(sr_config):
+                vm_refs.extend(get_vm_refs(session, sr_ref))
+
+    start_vms(session, set(vm_refs))
 
 
 if __name__ == '__main__':
