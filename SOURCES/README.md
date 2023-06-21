@@ -4,6 +4,8 @@ Retry plugging PBDs to specific SRs on boot, then start VMs which couldn't autos
 
 ## Configuration
 
+### General
+
 Create a new file: `/etc/plug-late-sr.ini`.
 
 Then you can use this template to plug a specific SR at boot:
@@ -28,3 +30,15 @@ For example:
 [e986b1a1-9e18-49a1-820b-d0c310bbefa0]
 pbd-plug-retry-delay=10
 ```
+
+### Plug all PBDs
+
+It's possible to define a special category in the configuration file in order to automatically plug all the SRs of the pool.
+
+Just write this category in the config file:
+```
+[*]
+# Params
+```
+
+Warning: Note with that option set, other categories will be completely ignored!

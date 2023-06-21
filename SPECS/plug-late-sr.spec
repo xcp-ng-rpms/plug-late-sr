@@ -1,6 +1,6 @@
 Summary: Retry plugging PBDs to specific SRs on boot
 Name: plug-late-sr
-Version: 1.0
+Version: 1.1
 Release: 1%{?dist}
 License: GPLv3
 Source0: plug-late-sr
@@ -44,5 +44,8 @@ fi
 %doc README.md
 
 %changelog
+* Fri Jun 16 2023 Ronan Abhamon <ronan.abhamon@vates.fr> - 1.1-1
+- Can automatically plug all SRs now
+
 * Fri May 26 2023 Ronan Abhamon <ronan.abhamon@vates.fr> - 1.0-1
 - Initial package
