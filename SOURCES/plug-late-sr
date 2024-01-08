@@ -2,7 +2,6 @@
 
 import argparse
 import configparser
-import distutils.util
 import sys
 import time
 import XenAPI
@@ -13,11 +12,15 @@ PBD_PLUG_RETRY_DELAY = 30  # In seconds.
 
 # ------------------------------------------------------------------------------
 
-def strtobool(value):
-    try:
-        return bool(distutils.util.strtobool(value))
-    except ValueError:
+def strtobool(str):
+    if not str:
         return False
+    str = str.lower()
+    if str in ('y', 'yes', 't', 'true', 'on', '1'):
+        return True
+    if str in ('n', 'no', 'f', 'false', 'off', '0'):
+        return False
+    raise ValueError("invalid truth value '{}'".format(str))
 
 
 # ------------------------------------------------------------------------------

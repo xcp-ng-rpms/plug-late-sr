@@ -1,6 +1,6 @@
 Summary: Retry plugging PBDs to specific SRs on boot
 Name: plug-late-sr
-Version: 1.1
+Version: 1.2
 Release: 1%{?dist}
 License: GPLv3
 Source0: plug-late-sr
@@ -10,7 +10,7 @@ BuildArch: noarch
 
 BuildRequires: systemd
 
-Requires: python2-configparser
+Requires: python-configparser
 Requires(post): systemd
 Requires(preun): systemd
 Requires(postun): systemd
@@ -44,6 +44,9 @@ fi
 %doc README.md
 
 %changelog
+* Mon Jan 08 2024 Ronan Abhamon <ronan.abhamon@vates.fr> - 1.2-1
+- Support python3
+
 * Fri Jun 16 2023 Ronan Abhamon <ronan.abhamon@vates.fr> - 1.1-1
 - Can automatically plug all SRs now
 
